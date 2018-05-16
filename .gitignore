@@ -1,3 +1,6 @@
+# apk files and other raw data
+googleplay/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
