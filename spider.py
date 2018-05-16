@@ -4,6 +4,7 @@ from multiprocessing import Pool
 import json
 import csv
 import time
+import argparse
 
 LOCAL_WRITE_PERIOUD = 5
 
@@ -86,7 +87,7 @@ def clean_data(dic, *, category, package):
 
     if 'Updated' in dic:
         tm = time.strptime(dic['Updated'], '%B %d, %Y')
-        days = str(int(time.time() - time.mktime(tm) / 86400))
+        days = str(int((time.time() - time.mktime(tm)) / 86400))
         dic['Updated'] = days
 
     if 'Requires_Android' in dic:
@@ -120,7 +121,7 @@ def clean_data(dic, *, category, package):
     return vector
 
 
-def scrape_category(category):
+def scrape_category(category, *, headless):
     with open('game_packages.json') as fin:
         dic = json.load(fin)
 
@@ -128,7 +129,8 @@ def scrape_category(category):
         csvin = csv.DictReader(fin)
         visited = {row['Package'] for row in csvin}
 
-    print('Already visited %d packages in category %s' % (len(visited), category))
+    print('Already visited %d packages in category %s' %
+          (len(visited), category))
 
     target_packages = set(dic[category]) - visited
 
@@ -138,8 +140,11 @@ def scrape_category(category):
         count = 0
 
         options = Options()
-        options.add_experimental_option('prefs', {'intl.accept_languages': 'en,en_US'})
-        driver = webdriver.Chrome(executable_path=CHROME_PATH, chrome_options=options)
+        options.add_experimental_option(
+            'prefs', {'intl.accept_languages': 'en,en_US'})
+        if headless:
+            options.add_argument('--headless')
+        driver = webdriver.Chrome(executable_path=CHROME_PATH, options=options)
         spider = Spider(driver)
         time.sleep(5)
 
@@ -153,7 +158,8 @@ def scrape_category(category):
             if len(parsed) < 10:
                 print('Missing properties:', parsed)
                 continue
-            buffer.append(clean_data(parsed, category=category, package=package))
+            buffer.append(clean_data(
+                parsed, category=category, package=package))
 
             if count % LOCAL_WRITE_PERIOUD == 0:
                 with open('raw/' + category + '.csv', 'a', encoding='utf-8', newline='') as fout:
@@ -163,16 +169,40 @@ def scrape_category(category):
 
             visited.add(package)
             count += 1
-
+    except Exception as e:
+        print('Error occured when scraping %s' % category, e)
     finally:
+        print('Category %s exit' % category)
         driver.quit()
 
-def main():
+
+def main(args):
+    print(args)
     p = Pool()
-    for index in range(0, 4):
-        p.apply_async(scrape_category, (CATEGORYIES[index],))
+    for category_index in args.indices:
+        p.apply_async(scrape_category, (CATEGORYIES[
+                      category_index],), {'headless': args.headless})
     p.close()
     p.join()
 
+
 if __name__ == '__main__':
-    main()
+    desc = ''
+    for i in range(5, len(CATEGORYIES) + 1, 5):
+        desc += '%d - %d: ' % (i - 5, i - 1) + \
+            ' '.join(CATEGORYIES[i - 5:i]) + '\n'
+    else:
+        if len(CATEGORYIES) % 5 != 0:
+            desc += '%d - %d: ' % (i, len(CATEGORYIES) - 1) + \
+                ' '.join(CATEGORYIES[i:len(CATEGORYIES)])
+
+    parser = argparse.ArgumentParser(description=desc)
+    parser.add_argument('indices',
+                        type=int,
+                        nargs='+',
+                        help='specify the indices of the categories to scrape')
+    parser.add_argument('--headless',
+                        action='store_true',
+                        help="use the headless version of Chrome")
+    args = parser.parse_args()
+    main(args)
