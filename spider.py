@@ -58,7 +58,7 @@ class Spider:
 
     def get_page_by_package(self, package):
         self.driver.get(GOOGLE_PLAY_BASE_URL + 'details?id=' + package)
-        time.sleep(2)
+        time.sleep(3)
 
     def parse_current_page(self):
         parsed_dic = {}
@@ -80,8 +80,13 @@ def clean_data(dic, *, category, package):
     if 'Inapp_Products' in dic:
         tmp = dic['Inapp_Products'].replace(
             ' per item', '').replace(' - ', '-')
-        dic['Inapp_Lower_Bound'] = tmp.split('-')[0][1:]
-        dic['Inapp_Upper_Bound'] = tmp.split('-')[1][1:]
+        try:
+            dic['Inapp_Lower_Bound'] = tmp.split('-')[0][1:]
+            dic['Inapp_Upper_Bound'] = tmp.split('-')[1][1:]
+        except Exception as e:
+            dic['Inapp_Lower_Bound'], dic['Inapp_Upper_Bound'] = '0', '0'
+            print('Inapp_Products Error', e)
+
     else:
         dic['Inapp_Lower_Bound'], dic['Inapp_Upper_Bound'] = '0', '0'
 
@@ -133,7 +138,6 @@ def scrape_category(category, *, headless):
           (len(visited), category))
 
     target_packages = set(dic[category]) - visited
-
     buffer = []
 
     try:
@@ -156,10 +160,9 @@ def scrape_category(category, *, headless):
             spider.get_page_by_package(package)
             parsed = spider.parse_current_page()
             if len(parsed) < 10:
-                print('Missing properties:', parsed)
+                print('Missing properties:', len(parsed))
                 continue
-            buffer.append(clean_data(
-                parsed, category=category, package=package))
+            buffer.append(clean_data(parsed, category=category, package=package))
 
             if count % LOCAL_WRITE_PERIOUD == 0:
                 with open('raw/' + category + '.csv', 'a', encoding='utf-8', newline='') as fout:
@@ -169,17 +172,19 @@ def scrape_category(category, *, headless):
 
             visited.add(package)
             count += 1
+        else:
+            print('All packages in category %s has been scraped' % category)
     except Exception as e:
-        print('Error occured when scraping %s' % category, e)
+        print('Error occured when scraping %s:' % category, e)
+        raise
     finally:
         print('Category %s exit' % category)
         driver.quit()
 
 
 def main(args):
-    print(args)
     p = Pool()
-    for category_index in args.indices:
+    for category_index in set(args.indices):
         p.apply_async(scrape_category, (CATEGORYIES[
                       category_index],), {'headless': args.headless})
     p.close()
@@ -187,16 +192,19 @@ def main(args):
 
 
 if __name__ == '__main__':
-    desc = ''
+    description = 'This is a program that automatically scrapes Google Play ' + \
+        'packages info in certain categories. ' + \
+        'Specify the categories by using the following indices:\n \n'
     for i in range(5, len(CATEGORYIES) + 1, 5):
-        desc += '%d - %d: ' % (i - 5, i - 1) + \
-            ' '.join(CATEGORYIES[i - 5:i]) + '\n'
+        description += '%d - %d: ' % (i - 5, i - 1) + \
+            ', '.join(CATEGORYIES[i - 5:i]) + '\n'
     else:
         if len(CATEGORYIES) % 5 != 0:
-            desc += '%d - %d: ' % (i, len(CATEGORYIES) - 1) + \
-                ' '.join(CATEGORYIES[i:len(CATEGORYIES)])
+            description += '%d - %d: ' % (i, len(CATEGORYIES) - 1) + \
+                ', '.join(CATEGORYIES[i:len(CATEGORYIES)])
 
-    parser = argparse.ArgumentParser(description=desc)
+    parser = argparse.ArgumentParser(description=description,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('indices',
                         type=int,
                         nargs='+',
