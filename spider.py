@@ -7,7 +7,7 @@ import csv
 import time
 import argparse
 
-N_PROCESS = 4
+N_PROCESS = 8
 PACKAGES_PER_EPOCH = 40
 CHROME_PATH = 'Z:/chromedriver.exe'
 CATEGORYIES = ['Action', 'Adventure', 'Arcade', 'Board', 'Card',
@@ -62,7 +62,7 @@ class Spider:
 
     def get_page_by_package(self, package):
         self.driver.get(GOOGLE_PLAY_BASE_URL + 'details?id=' + package)
-        time.sleep(2)
+        time.sleep(3)
 
     def parse_current_page(self):
         parsed_dic = {}
@@ -80,7 +80,7 @@ class Spider:
         try:
             self.driver.find_element_by_xpath(
                 XPATHS['permission']['button']).click()
-            time.sleep(4)
+            time.sleep(2)
             parsed_dic['Permission'] = ';'.join(
                 [elem.text for elem in self.driver.find_elements_by_xpath(XPATHS['permission']['each_item'])])
         except Exception as e:
@@ -112,13 +112,13 @@ class PackageInfoWriter:
         if len(dic) < 10 or self.strict and '' in vec:
             print('[%s] pakcage %s missing property %d' %
                   (category, package, vec.index('')))
-            return 0
+            return False
 
         self.buffer.append(vec)
         self.count += 1
         if self.count % self.period == 0:
             self.write()
-        return 1
+        return True
 
     def close(self):
         self.write()
@@ -128,9 +128,13 @@ def scrape_category(category, args, maxnum):
     with open(args.infile, 'r') as fin:
         dic = json.load(fin)
 
-    with open('raw/' + category + '.csv', 'r', encoding='utf-8') as fin:
+    with open('raw/%s.csv' % category, 'r', encoding='utf-8') as fin:
         csvin = csv.DictReader(fin)
         visited = {row['Package'] for row in csvin}
+
+    with open('log/%s_visited.json' % category, 'r') as fin:
+        visited |= set(json.load(fin))
+
     target_packages = set(dic[category]) - visited
     count = 0
 
@@ -157,10 +161,14 @@ def scrape_category(category, args, maxnum):
 
             spider.get_page_by_package(package)
             parsed_dic = spider.parse_current_page()
-            count += writer.process_dic(parsed_dic, category, package)
+            if writer.process_dic(parsed_dic, category, package):
+                print('[%s] package %s scraped' % (category, package))
+                count += 1
         else:
             print('All packages in category %s has been scraped' % category)
     finally:
+        with open('log/%s_visited.json' % category, 'w') as fout:
+            json.dump(list(visited), fout, indent=4)
         print('Category %s exit' % category)
         writer.close()
         driver.quit()
@@ -207,8 +215,8 @@ if __name__ == '__main__':
                         help='specify the json file that contains package names')
     parser.add_argument('-n',
                         type=int,
-                        default=100,
-                        help="the number of packages to scrape (defalt: 100)")
+                        default=20000,
+                        help="the number of packages to scrape (defalt: 20000)")
     parser.add_argument('--headless',
                         action='store_true',
                         help="use the headless version of Chrome")
