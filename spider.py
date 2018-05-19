@@ -1,7 +1,6 @@
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 import multiprocessing as mp
-import itertools
 import json
 import csv
 import time
@@ -172,18 +171,21 @@ def scrape_category(category, args, maxnum):
         print('Category %s exit' % category)
         writer.close()
         driver.quit()
-    return count
+    return count if target_packages else -1 
 
 
 def scrape_multiple_categories(categories, args, maxnum):
     print('Process started. Scraping %s' % categories)
-    for cate in itertools.cycle(categories):
-        if maxnum <= 0:
-            break
+    while categories and maxnum > 0:
+        cate = categories.pop(0)
         try:
-            maxnum -= scrape_category(cate, args, maxnum=PACKAGES_PER_EPOCH)
+            res = scrape_category(cate, args, maxnum=PACKAGES_PER_EPOCH)
+            if res is None or res >= 0:
+                maxnum -= res
+                categories.append(cate)
         except Exception as e:
             print(e)
+    print('Process terminating...')
 
 
 def main(args):
