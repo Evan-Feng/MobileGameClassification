@@ -7,7 +7,6 @@ import time
 import json
 from spider import CATEGORYIES, CHROME_PATH
 
-PACKAGES_PER_EPOCH = 100
 XPATHS = {
     'seemore': "//a[text() = 'See more']",
     'package_item': "//span[@class = 'preview-overlay-container']",
@@ -58,20 +57,22 @@ def scrape_packages_in_category(category, driver):
 
 def scrape_packages_general(driver, maxnum):
     packages = set()
+    queue = []
     try:
         driver.get('https://play.google.com/store/apps/category/GAME')
         while len(packages) < maxnum:
             print(len(packages))
             scroll_down(driver, 50)
             for elem in driver.find_elements_by_xpath(XPATHS['package_item']):
-                packages.add(elem.get_attribute('data-docid'))
+                pkg = elem.get_attribute('data-docid')
+                if pkg not in packages:
+                    packages.add(pkg)
+                    queue.append(pkg)
             try:
                 driver.find_element_by_xpath(XPATHS['seemore']).click()
             except Exception as e:
-                pkg = packages.pop()
-                packages.add(pkg)
                 driver.get(
-                    'https://play.google.com/store/apps/details?id=' + pkg)
+                    'https://play.google.com/store/apps/details?id=' + queue.pop())
     finally:
         packages = list(packages)
         with open('temp.txt', 'w') as fout:
