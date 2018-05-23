@@ -61,7 +61,7 @@ class Spider:
 
     def get_page_by_package(self, package):
         self.driver.get(GOOGLE_PLAY_BASE_URL + 'details?id=' + package)
-        time.sleep(3)
+        time.sleep(1)
 
     def parse_current_page(self):
         parsed_dic = {}
