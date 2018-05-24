@@ -25,22 +25,9 @@ class TestSpiderAndWriter(unittest.TestCase):
         dic = self.spider.parse_current_page()
         new_dic = dic.copy()
         pprint(dic)
-
-        vec = self.writer.clean_data(dic, category='Action',
-                                package=self.target_package)
-        pprint(vec)
-        self.assertEqual(len(vec), self.writer.valid_length(vec))
-        self.assertEqual(len(vec), len(HEADERS['old']))
-        
-
         vec = self.writer.vectorize_dic(new_dic, category='Action',
-                               package=self.target_package)
-
+                                        package=self.target_package)
         pprint(vec)
-        self.assertEqual(len(vec), self.writer.valid_length(vec))
-        self.assertEqual(len(vec), len(HEADERS['new']))
-        
-
 
 
 if __name__ == '__main__':
