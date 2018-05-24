@@ -4,6 +4,7 @@ from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
 import argparse
 import time
+import random
 import json
 from spider import CATEGORYIES, CHROME_PATH
 
@@ -14,10 +15,10 @@ XPATHS = {
 
 
 def scroll_down(driver, clicks):
-    time.sleep(2)
+    # time.sleep(2)
     for _ in range(clicks):
         ActionChains(driver).key_down(Keys.DOWN).perform()
-    time.sleep(2)
+    # time.sleep(2)
 
 
 def scrape_packages_in_category(category, driver):
@@ -57,10 +58,13 @@ def scrape_packages_in_category(category, driver):
 
 def scrape_packages_general(driver, maxnum):
     packages = set()
-    queue = []
+    for cate in CATEGORYIES:
+        packages |= set(scrape_packages_in_category(cate, driver))
+    queue = list(packages)
+    # start_urls = ['https://play.google.com/store/apps/category/GAME_%s' % c.upper() for c in CATEGORYIES]
     try:
         driver.get('https://play.google.com/store/apps/category/GAME')
-        while len(packages) < maxnum:
+        while len(packages) < maxnum and queue:
             print(len(packages))
             scroll_down(driver, 50)
             for elem in driver.find_elements_by_xpath(XPATHS['package_item']):
@@ -69,10 +73,12 @@ def scrape_packages_general(driver, maxnum):
                     packages.add(pkg)
                     queue.append(pkg)
             try:
-                driver.find_element_by_xpath(XPATHS['seemore']).click()
+                random.choice(driver.find_elements_by_xpath(XPATHS['seemore'])).click()
             except Exception as e:
-                driver.get(
-                    'https://play.google.com/store/apps/details?id=' + queue.pop())
+                # if random.randint(0, 10) < 8:
+                #     driver.get(random.choice(start_urls))
+                # else:
+                driver.get('https://play.google.com/store/apps/details?id=' + queue.pop(0))
     finally:
         packages = list(packages)
         with open('temp.txt', 'w') as fout:
@@ -118,6 +124,6 @@ if __name__ == '__main__':
                         help='maximum number of packages to scrape (default: 2000)')
     parser.add_argument('--headless',
                         action='store_true',
-                        help="use the headless version of Chrome")
+                        help="use the headless version of Firefox")
     args = parser.parse_args()
     main(args)
