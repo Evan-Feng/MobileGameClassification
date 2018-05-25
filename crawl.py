@@ -1,3 +1,9 @@
+# -*- coding: utf-8 -*-
+# -------------------------------------------------------------------------------------
+# Name:              crawl.py
+# Description:       a web crawler that automatically scrapes app info from Google Play
+# Author:            fyl
+# -------------------------------------------------------------------------------------
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.action_chains import ActionChains
@@ -7,10 +13,8 @@ import json
 import csv
 import time
 import argparse
+from queue import Full, Empty
 from spider import CATEGORYIES, CHROME_PATH, GOOGLE_PLAY_BASE_URL
-from package_spider import scrape_packages_in_category
-
-N_PROCESS = 8
 
 XPATHS = {
     'general': {
@@ -56,14 +60,31 @@ HEADERS = {
 class Crawler:
 
     def __init__(self, driver):
+        """
+        driver: Selenium.webdriver.Chrome object
+            a selenium webdriver object used to control the browser
+
+        Returns: None
+        """
         self.driver = driver
         time.sleep(5)
 
     def get_page_by_package(self, package):
+        """
+        Given an Android package name, fetch the app info page from Google Play.
+
+        Returns: None
+        """
         self.driver.get(GOOGLE_PLAY_BASE_URL + 'details?id=' + package)
         time.sleep(1)
 
     def parse_current_page(self):
+        """
+        Parse the current page into a python dict based on the key-xpath pairs in
+        varaible XPATH.
+
+        Returns: dict{str: str, ... , str: str}
+        """
         parsed_dic = {}
         for key, xpath in XPATHS['general'].items():
             try:
@@ -76,25 +97,23 @@ class Crawler:
                     xpath).get_attribute('title')
             except Exception as e:
                 pass
-        # try:
-        #     self.driver.find_element_by_xpath(
-        #         XPATHS['permission']['button']).click()
-        #     time.sleep(1)
-        #     parsed_dic['Permission'] = ';'.join(
-        #         [elem.text for elem in self.driver.find_elements_by_xpath(XPATHS['permission']['each_item'])])
-        # except Exception as e:
-        #     pass
         return parsed_dic
 
     def explore_packages(self):
+        """
+        Click the see-more button, parse similar apps from this page, and return their
+        package names in a python set.
+
+        Returns: set{str, str, ... , str}
+        """
         def scroll_down(driver, clicks):
-            # time.sleep(2)
             for _ in range(clicks):
                 ActionChains(driver).key_down(Keys.DOWN).perform()
-            # time.sleep(2)
+
         res = set()
         try:
-            self.driver.find_elements_by_xpath("//a[text() = 'See more']")[-1].click()
+            self.driver.find_elements_by_xpath(
+                "//a[text() = 'See more']")[-1].click()
             scroll_down(self.driver, 50)
             for elem in self.driver.find_elements_by_xpath("//span[@class = 'preview-overlay-container']"):
                 res.add(elem.get_attribute('data-docid'))
@@ -106,16 +125,43 @@ class Crawler:
 class PackageInfoWriter:
 
     def __init__(self, csv_path, period, strict_mode):
+        """
+        csv_path: str
+            the csv file to write data
+        period: int
+            the number of rows to buffer before writing to csv file
+        strict_mode: bool
+            skip the package if at least one attribute is missing
+
+        Returns: None
+        """
         self.buffer, self.count = [], 0
         self.path, self.period, self.strict = csv_path, period, strict_mode
 
     def write(self):
+        """
+        Write(append) the buffered rows to a csv file and clear the buffer.
+
+        Returns: None
+        """
         with open(self.path, 'a', encoding='utf-8', newline='') as fout:
             csvout = csv.writer(fout)
             csvout.writerows(self.buffer)
         self.buffer = []
 
     def process_dic(self, dic, package):
+        """
+        Given a package and its info dict, convert the dict to a vector based on the
+        attributes specified in HEADERS['full'], replace the missing trivial attribute
+        with '???', then append it to the buffer.
+
+        dic: dict{str: str, ... str: str}
+            the info dict parsed from a Google Play page
+        package: str
+            the name of the package
+
+        Returns: None
+        """
 
         def vectorize_dic(dic, package):
             for key in HEADERS['trivial']:
@@ -136,10 +182,64 @@ class PackageInfoWriter:
         return True
 
     def close(self):
+        """
+        Write the remaining buffered rows to the csv file.
+
+        Returns: None
+        """
         self.write()
 
 
-def crawl(categories, args, maxnum, pid):
+def scheduler(Q1, Q2):
+    """
+    A process that repeatedly sends packages to worker processes based on a BFS-search
+    approach and fetches additional packages from worker process and append them to the
+    BFS queue. Can only be terminated by Ctrl-C. Notes that visted packages and bfs-queue
+    will be saved to and restored from "./log/scrape.json".
+
+    Q1: multiprocessing.Queue object
+    Q2: multiprocessing.Queue object
+
+    Returns: None
+    """
+    with open('log/scrape.json', 'r') as fin:
+        visited, queue = json.load(fin)
+    visited = set(visited)
+    try:
+        while True:
+            while queue:
+                try:
+                    if queue[0] not in visited:
+                        Q1.put(queue[0], block=False)
+                        visited.add(queue[0])
+                    queue.pop(0)
+                except Full:
+                    break
+            while True:
+                try:
+                    pkg = Q2.get(block=False)
+                    if pkg not in visited and pkg not in queue and len(queue) < 100000:
+                        queue.append(pkg)
+                except Empty:
+                    break
+    finally:
+        with open('log/scrape.json', 'w') as fout:
+            json.dump([list(visited), queue], fout, indent=4)
+
+
+def crawl(Q1, Q2, pid, args):
+    """
+    The worker process that consumes packages from scheduler process, scrapes it from
+    Google Play, parses it into a python dict, writes it to a csv file, and send more
+    packages to scheduler. Can only be terminated by Ctrl-C.
+
+    Q1: multiprocessing.Queue object
+    Q2: multiprocessing.Queue object
+    pid: int
+    args: argparse.Namespace object
+
+    Returns: None
+    """
     print('Process %d started...' % pid)
     options = Options()
     options.add_experimental_option(
@@ -151,60 +251,44 @@ def crawl(categories, args, maxnum, pid):
     writer = PackageInfoWriter('raw/%d.csv' % pid, 5, args.strict)
     crawler = Crawler(driver)
 
-
-    queue = []
-    with open('log/%d.json' % pid, 'r') as fin:
-        visited, queue = json.load(fin)
-    visited = set(visited)
-    print(len(queue))
     try:
-        while queue:
-            package = queue.pop(0)
-            if package in visited:
-                continue
-            visited.add(package)
+        while True:
+            package = Q1.get()
             crawler.get_page_by_package(package)
             dic = crawler.parse_current_page()
             if dic.get('Category', None) in CATEGORYIES:
                 print('[%d] %s' % (pid, package))
                 writer.process_dic(dic, package)
-            if dic.get('Category', None) in categories:
                 new_pkgs = crawler.explore_packages()
-                if len(queue) < 100000:
-                    queue += list(new_pkgs - visited)
+                for pkg in new_pkgs:
+                    Q2.put(pkg)
+    except Exception as e:
+        print(e)
     finally:
-        with open('log/%d.json' % pid, 'w') as fout:
-            json.dump([list(visited), queue], fout, indent=4)
         print('Process %d exit...' % pid)
         driver.quit()
         writer.close()
 
 
 def main(args):
-    div, mod = divmod(len(CATEGORYIES), N_PROCESS)
-    ncate = div + 1 if mod else div
-    pid = 0
-    for i in range(0, div * (N_PROCESS - mod), div):
-        mp.Process(target=crawl, args=(
-            CATEGORYIES[i:i + div], args, args.n // N_PROCESS, pid)).start()
-        pid += 1
-    for i in range(div * (N_PROCESS - mod), len(CATEGORYIES), div + 1):
-        p = mp.Process(target=crawl, args=(
-            CATEGORYIES[i:i + div + 1], args, args.n // N_PROCESS, pid)).start()
-        pid += 1
+    Q1 = mp.Queue(maxsize=20)
+    Q2 = mp.Queue(maxsize=1000)
+    mp.Process(target=scheduler, args=(Q1, Q2)).start()
+    for i in range(args.n):
+        mp.Process(target=crawl, args=(Q1, Q2, i, args)).start()
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-n',
                         type=int,
-                        default=20000,
-                        help="the maximum number of packages to scrape (defalt: 20000)")
+                        default=8,
+                        help="the number of worker processes to use (default: 8)")
     parser.add_argument('--headless',
                         action='store_true',
                         help="use the headless version of Chrome")
     parser.add_argument('--strict',
                         action='store_true',
-                        help="skip the package if at least one property is missing")
+                        help="skip the package if at least one attribute is missing")
     args = parser.parse_args()
     main(args)
