@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-#-------------------------------------------------------------------------------------
-#  Name:           crawl.py
-#  Description:    an efficient multi-process web crawler that automatically scrapes
-#                  app info from Google Play
-#  Author:         fyl
-#-------------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------------#
+#  Name:           crawl.py                                                           #
+#  Description:    an efficient multi-process web crawler that automatically scrapes  #
+#                  app info from Google Play                                          #
+#  Author:         fyl                                                                #
+#-------------------------------------------------------------------------------------#
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.action_chains import ActionChains
@@ -15,7 +15,18 @@ import csv
 import time
 import argparse
 from queue import Full, Empty
-from spider import CATEGORYIES, CHROME_PATH, GOOGLE_PLAY_BASE_URL
+
+CATEGORIES = ['Action', 'Adventure', 'Arcade', 'Board', 'Card',
+              'Casino', 'Casual', 'Educational', 'Music', 'Puzzle',
+              'Racing', 'Role_Playing', 'Simulation', 'Sports',
+              'Strategy', 'Trivia', 'Word']
+
+CHROME_PATH = 'Z:/chromedriver.exe'
+
+START_PACKAGES = [
+    'com.orangeapps.piratetreasure',
+    'se.hellothere.gravityhd',
+]
 
 XPATHS = {
     'general': {
@@ -42,10 +53,10 @@ XPATHS = {
         'Rating_2': "//div[span = '2']/span[@title]",
         'Rating_1': "//div[span = '1']/span[@title]",
     },
-    'permission': {
-        'button': "//div[div = 'Permissions']/span/div/span/div/a",
-        'each_item': "//li[@class = 'NLTG4']/span",
-    },
+    # 'permission': {
+    #     'button': "//div[div = 'Permissions']/span/div/span/div/a",
+    #     'each_item': "//li[@class = 'NLTG4']/span",
+    # },
 }
 
 HEADERS = {
@@ -63,7 +74,7 @@ class Crawler:
     def __init__(self, driver):
         """
         driver: Selenium.webdriver.Chrome object
-            a selenium webdriver object used to control the browser
+            a selenium webdriver object utilized to control the browser
 
         Returns: None
         """
@@ -76,7 +87,8 @@ class Crawler:
 
         Returns: None
         """
-        self.driver.get(GOOGLE_PLAY_BASE_URL + 'details?id=' + package)
+        self.driver.get(
+            'https://play.google.com/store/apps/details?id=' + package)
         time.sleep(1)
 
     def parse_current_page(self):
@@ -113,9 +125,10 @@ class Crawler:
 
         res = set()
         try:
-            self.driver.find_elements_by_xpath(
-                "//a[text() = 'See more']")[-1].click()
-            scroll_down(self.driver, 50)
+            self.driver.find_element_by_xpath(
+                "//a[text() = 'See more']").click()
+            # scroll_down(self.driver, 50)
+            time.sleep(1)
             for elem in self.driver.find_elements_by_xpath("//span[@class = 'preview-overlay-container']"):
                 res.add(elem.get_attribute('data-docid'))
         except Exception as e:
@@ -203,9 +216,14 @@ def scheduler(Q1, Q2):
 
     Returns: None
     """
-    with open('log/scrape.json', 'r') as fin:
-        visited, queue = json.load(fin)
-    visited = set(visited)
+    try:
+        with open('log/scrape.json', 'r') as fin:
+            visited, queue = json.load(fin)
+        visited = set(visited)
+    except OSError:
+        visited = set()
+        queue = START_PACKAGES
+
     try:
         while True:
             while queue:
@@ -257,10 +275,12 @@ def crawl(Q1, Q2, pid, args):
             package = Q1.get()
             crawler.get_page_by_package(package)
             dic = crawler.parse_current_page()
-            if dic.get('Category', None) in CATEGORYIES:
+            if dic.get('Category', None) in CATEGORIES:
                 print('[%d] %s' % (pid, package))
                 writer.process_dic(dic, package)
                 new_pkgs = crawler.explore_packages()
+                if args.verbose:
+                    print('appending %d packages to bfs queue' % len(new_pkgs))
                 for pkg in new_pkgs:
                     Q2.put(pkg)
     except Exception as e:
@@ -272,6 +292,15 @@ def crawl(Q1, Q2, pid, args):
 
 
 def main(args):
+    """
+    Create two multiprocessing.Queue objects for communication between sceduler and
+    workers, then start one scheduler process and n (specified by args.n, default 8)
+    worker processes.
+
+    args: argparse.Namespace object
+
+    Returns: None
+    """
     Q1 = mp.Queue(maxsize=20)
     Q2 = mp.Queue(maxsize=1000)
     mp.Process(target=scheduler, args=(Q1, Q2)).start()
@@ -291,5 +320,8 @@ if __name__ == '__main__':
     parser.add_argument('--strict',
                         action='store_true',
                         help="skip the package if at least one attribute is missing")
+    parser.add_argument('-v', '--verbose',
+                        action='store_true',
+                        help="increase verbosity")
     args = parser.parse_args()
     main(args)
