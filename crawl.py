@@ -204,7 +204,7 @@ class PackageInfoWriter:
         self.write()
 
 
-def scheduler(Q1, Q2):
+def scheduler(Q1, Q2, verbose):
     """
     A process that repeatedly sends packages to worker processes based on a BFS-search
     approach and fetches additional packages from worker process and append them to the
@@ -213,6 +213,7 @@ def scheduler(Q1, Q2):
 
     Q1: multiprocessing.Queue object
     Q2: multiprocessing.Queue object
+    verbose: bool
 
     Returns: None
     """
@@ -224,6 +225,7 @@ def scheduler(Q1, Q2):
         visited = set()
         queue = START_PACKAGES
 
+    count = 0
     try:
         while True:
             while queue:
@@ -231,6 +233,7 @@ def scheduler(Q1, Q2):
                     if queue[0] not in visited:
                         Q1.put(queue[0], block=False)
                         visited.add(queue[0])
+                        count += 1
                     queue.pop(0)
                 except Full:
                     break
@@ -241,6 +244,12 @@ def scheduler(Q1, Q2):
                         queue.append(pkg)
                 except Empty:
                     break
+            if count % 100 == 0:
+                count = 1
+                if verbose:
+                    print('storing data, current length of queue is %d' % len(queue))
+                with open('log/scrape.json', 'w') as fout:
+                    json.dump([list(visited), queue], fout, indent=4)
     finally:
         with open('log/scrape.json', 'w') as fout:
             json.dump([list(visited), queue], fout, indent=4)
@@ -303,7 +312,7 @@ def main(args):
     """
     Q1 = mp.Queue(maxsize=20)
     Q2 = mp.Queue(maxsize=1000)
-    mp.Process(target=scheduler, args=(Q1, Q2)).start()
+    mp.Process(target=scheduler, args=(Q1, Q2, args.verbose)).start()
     for i in range(args.n):
         mp.Process(target=crawl, args=(Q1, Q2, i, args)).start()
 
