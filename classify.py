@@ -120,7 +120,7 @@ class MultiRankClassifier:
                 rankj.fit(Xc[k], Yc)
                 Y[k] = rankj.predict(X[k])
             with open('tmp/%d_%d.json' % (xlen, iteration), 'w') as fout:
-                json.dump(sum(Y, []), fout)
+                json.dump(sum(Y, []), fout, indent=4)
 
         if self.verbose >= 1:
             print()
