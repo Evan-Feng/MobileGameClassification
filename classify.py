@@ -22,7 +22,7 @@ class RankJudge:
         issparse = isspmatrix_csr(X)
 
         self.clfs = [[base.clone(self.base_clf)
-                      for _ in range(q - 1 - i)] for i in range(q)]
+                      for _ in range(self.q - 1 - i)] for i in range(self.q)]
 
         for i in range(self.q):
             for j in range(i + 1, self.q):
