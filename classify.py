@@ -14,13 +14,16 @@ from crawl import CATEGORIES
 class RankJudge:
 
     def __init__(self, binary_classifier, q, verbose):
-        self.clfs = [[base.clone(binary_classifier)
-                      for _ in range(q - 1 - i)] for i in range(q)]
+        self.base_clf = binary_classifier
         self.q = q
         self.verbose = verbose
 
     def fit(self, X, Y):
         issparse = isspmatrix_csr(X)
+
+        self.clfs = [[base.clone(self.base_clf)
+                      for _ in range(q - 1 - i)] for i in range(q)]
+
         for i in range(self.q):
             for j in range(i + 1, self.q):
                 X_tmp, Y_tmp = [], []
