@@ -3,6 +3,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_extraction.text import TfidfVectorizer
 from scipy.sparse import vstack, isspmatrix_csr
 import numpy as np
+import json
 import random
 import argparse
 import pickle
@@ -105,6 +106,8 @@ class MultiRankClassifier:
         if isinstance(Y, np.ndarray):
             Y = Y.tolist()
 
+        xlen = X.shape[0] if isspmatrix_csr(X) else len(X)
+
         self.q = len(Y[0])
         X, Y, Xc = self._split_k(X, Y, self.kfold)
         rankj = RankJudge(self.clf, self.q, self.verbose)
@@ -116,6 +119,8 @@ class MultiRankClassifier:
                 Yc = sum([Y[i] for i in range(self.kfold) if i != k], [])
                 rankj.fit(Xc[k], Yc)
                 Y[k] = rankj.predict(X[k])
+            with open('tmp/%d_%d.json' % (xlen, iteration), 'w') as fout:
+                json.dump(sum(Y, []), fout)
 
         if self.verbose >= 1:
             print()
