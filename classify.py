@@ -1,90 +1,130 @@
-from sklearn import svm
-from sklearn import metrics
-from sklearn import preprocessing
-from sklearn.pipeline import FeatureUnion, Pipeline
-from sklearn.model_selection import GridSearchCV
-from sklearn import svm
+from sklearn import svm, base, decomposition, preprocessing
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
+from sklearn.feature_extraction.text import TfidfVectorizer
+from scipy.sparse import vstack, isspmatrix_csr
 import numpy as np
-import pickle
+import random
 import argparse
-import time
+import pickle
+from pprint import pprint
+from crawl import CATEGORIES
 
 
-class MyCountVectorizer(CountVectorizer):
+class RankJudge:
 
-    def __init__(self, input='content', encoding='utf-8', decode_error='strict',
-                 strip_accents=None, lowercase=True, preprocessor=None, tokenizer=None,
-                 stop_words=None, token_pattern=r'(?u)\b\w\w +\b', ngram_range=(1, 1),
-                 analyzer='word', max_df=1.0, min_df=1, max_features=None, vocabulary=None,
-                 binary=False, dtype=np.int64):
+    def __init__(self, binary_classifier, q, verbose):
+        self.clfs = [[base.clone(binary_classifier)
+                      for _ in range(q - 1 - i)] for i in range(q)]
+        self.q = q
+        self.verbose = verbose
 
-        return super().__init__(input=input, encoding=encoding, decode_error=decode_error,
-                                strip_accents=strip_accents, lowercase=lowercase, preprocessor=preprocessor,
-                                tokenizer=tokenizer, stop_words=stop_words, token_pattern=token_pattern,
-                                ngram_range=ngram_range, analyzer=analyzer, max_df=max_df, min_df=min_df,
-                                max_features=max_features, vocabulary=vocabulary, binary=binary, dtype=dtype)
+    def fit(self, X, Y):
+        issparse = isspmatrix_csr(X)
+        for i in range(self.q):
+            for j in range(i + 1, self.q):
+                X_tmp, Y_tmp = [], []
+                for xi, yi in zip(X, Y):
+                    if yi[i] != yi[j]:
+                        X_tmp.append(xi)
+                        Y_tmp.append(int(yi[i] > yi[j]))
+                    else:
+                        X_tmp += [xi, xi]
+                        Y_tmp += [0, 1]
+                if issparse:
+                    X_tmp = vstack(X_tmp, format='csr')
+                if self.verbose >= 1:
+                    print('.', end='', flush=True)
+                if 0 in Y_tmp and 1 in Y_tmp:
+                    self.clfs[i][j - i - 1].fit(X_tmp, Y_tmp)
+                else:
+                    self.clfs[i][j - i - 1] = Y_tmp[0]
+        if self.verbose >= 1:
+            print()
 
-    def fit(self, x, *args, **kwargs):
-        return super().fit(x[:, -1].tolist(), *args, **kwargs)
+    def predict(self, X):
+        xlen = X.shape[0] if isspmatrix_csr(X) else len(X)
 
-    def fit_transform(self, x, *args, **kwargs):
-        return super().fit_transform(x[:, -1].tolist(), *args, **kwargs)
-
-    def transform(self, x, *args, **kwargs):
-        return super().transform(x[:, -1].tolist(), *args, **kwargs)
-
-
-class MyTfidfVectorizer(TfidfVectorizer):
-
-    def __init__(self, input='content', encoding='utf-8', decode_error='strict',
-                 strip_accents=None, lowercase=True, preprocessor=None, tokenizer=None,
-                 analyzer='word', stop_words=None, token_pattern=r'(?u)\b\w\w+\b',
-                 ngram_range=(1, 1), max_df=1.0, min_df=1, max_features=None,
-                 vocabulary=None, binary=False, dtype=np.int64, norm='l2', use_idf=True,
-                 smooth_idf=True, sublinear_tf=False):
-
-        return super().__init__(input=input, encoding=encoding, decode_error=decode_error,
-                                strip_accents=strip_accents, lowercase=lowercase, preprocessor=preprocessor,
-                                tokenizer=tokenizer, analyzer=analyzer, stop_words=stop_words,
-                                token_pattern=token_pattern, ngram_range=ngram_range, max_df=max_df,
-                                min_df=min_df, max_features=max_features, vocabulary=vocabulary,
-                                binary=binary, dtype=dtype, norm=norm, use_idf=use_idf,
-                                smooth_idf=smooth_idf, sublinear_tf=sublinear_tf)
-
-    def fit(self, x, *args, **kwargs):
-        return super().fit(x[:, -1].tolist(), *args, **kwargs)
-
-    def fit_transform(self, x, *args, **kwargs):
-        return super().fit_transform(x[:, -1].tolist(), *args, **kwargs)
-
-    def transform(self, x, *args, **kwargs):
-        return super().transform(x[:, -1].tolist(), *args, **kwargs)
+        res = [[0] * self.q for _ in range(xlen)]
+        for i in range(self.q):
+            for j in range(i + 1, self.q):
+                if self.clfs[i][j - i - 1] in {0, 1}:
+                    pred = [self.clfs[i][j - i - 1]] * xlen
+                else:
+                    pred = self.clfs[i][j - i - 1].predict(X)
+                for index in range(xlen):
+                    if pred[index] == 1:
+                        res[index][i] += 1
+                    else:
+                        res[index][j] += 1
+        return res
 
 
-class MyScaler(preprocessing.StandardScaler):
+class MultiRankClassifier:
 
-    def __init__(self):
-        self.mean_ = None
-        self.std_ = None
-        self.epsilon = 0.0001
+    def __init__(self, binary_classifier,  max_iters=100, kfold=3, verbose=0, randomize=True):
+        self.clf = binary_classifier
+        self.max_iters = max_iters
+        self.kfold = kfold
+        self.verbose = verbose
+        self.kperm = list(range(kfold))
+        if randomize:
+            random.shuffle(self.kperm)
 
-    def fit(self, X, y=None):
-        X = X[:, :-1].astype('float64')
-        self.mean_ = np.mean(X, axis=0)
-        self.std_ = np.std(X, axis=0)
-        return self
+    def _split_k(self, X, Y, k):
+        issparse = isspmatrix_csr(X)
 
-    def fit_tranform(self, X, y=None):
-        X = X[:, :-1].astype('float64')
-        self.mean_ = np.mean(X, axis=0)
-        self.std_ = np.std(X, axis=0)
-        return (X - self.mean_) / (self.std_ + self.epsilon)
+        if not issparse:
+            X = np.array(X)
 
-    def transform(self, X, y=None):
-        X = X[:, :-1].astype('float64')
-        return (X - self.mean_) / (self.std_ + self.epsilon)
+        if X.shape[0] < k:
+            raise ValueError(
+                'not enough samples to be split into %d partitions' % k)
+        elif X.shape[0] != len(Y):
+            raise ValueError(
+                'number of samples do not match, %d in X and %d in Y' % (X.shape[0], len(Y)))
+        div, mod = divmod(X.shape[0], k)
+        n_each = [div + 1] * (mod) + [div] * (k - mod)
+        ans = 0
+        
+
+        X_, Y_, X_c = [], [], []
+        for i in range(k):
+            X_.append(X[ans:ans + n_each[i]])
+            Y_.append(Y[ans:ans + n_each[i]])
+            if issparse:
+                X_c.append(
+                    vstack((X[:ans], X[ans + n_each[i]:]), format='csr'))
+            else:
+                X_c.append(np.concatenate(
+                    (X[:ans], X[ans + n_each[i]:]), axis=0))
+            ans += n_each[i]
+
+        return X_, Y_, X_c
+
+    def fit(self, X, Y):
+        if isinstance(Y, np.ndarray):
+            Y = Y.tolist()
+
+        self.q = len(Y[0])
+        X, Y, Xc = self._split_k(X, Y, self.kfold)
+        rankj = RankJudge(self.clf, self.q, self.verbose)
+
+        for iteration in range(self.max_iters):
+            if self.verbose >= 1:
+                print('[%d]' % iteration, end='', flush=True)
+            for k in self.kperm:
+                Yc = sum([Y[i] for i in range(self.kfold) if i != k], [])
+                rankj.fit(Xc[k], Yc)
+                Y[k] = rankj.predict(X[k])
+
+        if self.verbose >= 1:
+            print()
+
+        self.rankj = rankj
+        return sum(Y, [])
+
+    def predict(self, X):
+        return self.rankj.predict(X)
 
 
 def load_dataset(path):
@@ -94,49 +134,39 @@ def load_dataset(path):
 
 
 def main(args):
+    """
+    args: argparse.Namespace object
+
+    Returns: None
+    """
     x_train, y_train, x_test, y_test = load_dataset(args.infile)
 
-    y_train = y_train.astype('int64')
-    y_test = y_test.astype('int64')
+    # convert label to one-hot encoding
+    lb = preprocessing.LabelBinarizer()
+    y_train = lb.fit_transform(y_train.astype('int64')).tolist()
+    y_test = lb.transform(y_test.astype('int64')).tolist()
 
-    feature_extractors = [
-        ('general', MyScaler()),
-        ('wordcount', MyCountVectorizer(ngram_range=(1, 1))),
-        ('tfidf', MyTfidfVectorizer()),
-    ]
-    combined_feature = FeatureUnion(feature_extractors)
+    # extract tf-idf features
+    tfidf = TfidfVectorizer()
+    x_train = tfidf.fit_transform(x_train[:, -1])
+    x_test = tfidf.transform(x_test[:, -1])
 
-    estimators = [('feature', combined_feature),
-                  ('clf', svm.LinearSVC())]
-    pipeline = Pipeline(estimators)
+    clf = MultiRankClassifier(svm.LinearSVC(C=0.3), verbose=4)
 
-    param_grid = [
-        {
-            'clf': [svm.LinearSVC()],
-            'clf__C': [100, 10, 1, 0.1, 0.01, ],
-            'feature__wordcount__ngram_range': [(1, 1), (1, 2)]
-        },
-        {
-            'clf': [RandomForestClassifier(n_estimators=1000)],
-            'clf__max_depth': [10, 1000],
-            'clf__min_impurity_decrease': [0, 1],
-            'feature__wordcount__ngram_range': [(1, 1), (1, 2)]
-        },
-    ]
-    t0 = time.time()
-    grid = GridSearchCV(pipeline, param_grid=param_grid, verbose=4)
-    grid.fit(x_train, y_train)
+    train_rank = clf.fit(x_train, y_train)
+    test_rank = clf.predict(x_test)
 
-    print()
-    print('done in %.2f seconds' % (time.time() - t0))
-    print()
-    print('train accuracy: %.2f%%' % 100 * grid.score(x_train, y_train))
-    print('test accuracy: %.2f%%' % 100 * grid.score(x_test, y_test))
-    print()
-    print('the best parameters are:', grid.best_params_)
-    print()
-    print('confusion matrix:')
-    print(metrics.confusion_matrix(y_test, grid.predict(x_test)))
+    print(len(train_rank), len(y_train))
+    print(len(test_rank), len(y_test))
+
+    pprint(train_rank[:10])
+    pprint(y_train[:10])
+
+    pprint(test_rank[:10])
+    pprint(y_test[:10])
+
+    with open('model/rank', 'wb') as fout:
+        pickle.dump([train_rank, test_rank], fout)
 
 
 if __name__ == '__main__':
