@@ -104,6 +104,7 @@ class LinearWELL:
             ans = np.ones(m, dtype='int')
             for i in range(m0):
                 ans[index[i]] = x.value[i]
+            ans = (ans > 0.5).astype('int')
             F.append(ans.reshape(m, 1))
 
         return np.concatenate(F, axis=1)
@@ -136,12 +137,28 @@ def main(args):
     x_train = tfidf.fit_transform(x_train[:, -1])
 
     # learn the new label matrix using LinearWELL
-    param_grid = [10, 14, 16, 18, 12]
-    for gamma in param_grid:
+    candidates = [50, 60, 70, 80, 90, 100]
+    target_rate = 0.15
+    curr_min = 1
+
+    print('------------------------------------------------')
+    print('fitting for each of %d candidates' % len(candidates))
+    print('target: %.2f' % target_rate)
+    print()
+
+    for gamma in candidates:
         clf = LinearWELL(gamma=gamma, verbose=(args.verbose >= 1))
-        res = clf.fit_transform(x_train[:], y_train[:])
-        print('gamma: %.2f   nonzero rate: %.2f' %
-              (gamma, np.count_nonzero(res) / res.size))
+        curr_res = clf.fit_transform(x_train[:], y_train[:])
+        score = np.count_nonzero(curr_res) / curr_res.size
+        print('[CV] gamma=%.2f   score=%.2f' % (gamma, score))
+
+        if abs(score - target_rate) < curr_min:
+            curr_min = abs(score - target_rate)
+            res = curr_res
+            best_param = gamma
+    print()
+    print('the best parameter is %s' % {'gamma': best_param})
+    print('------------------------------------------------')
 
     # write the matrix to target path
     with open('model/linear_well.json', 'w') as fout:
