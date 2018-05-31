@@ -13,7 +13,7 @@ from crawl import CATEGORIES
 
 class RankJudge:
 
-    def __init__(self, binary_classifier, q, verbose):
+    def __init__(self, binary_classifier, q, verbose=0):
         self.base_clf = binary_classifier
         self.q = q
         self.verbose = verbose
@@ -42,8 +42,6 @@ class RankJudge:
                     self.clfs[i][j - i - 1].fit(X_tmp, Y_tmp)
                 else:
                     self.clfs[i][j - i - 1] = Y_tmp[0]
-        if self.verbose >= 1:
-            print()
 
     def predict(self, X):
         xlen = X.shape[0] if isspmatrix_csr(X) else len(X)
@@ -65,14 +63,11 @@ class RankJudge:
 
 class MultiRankClassifier:
 
-    def __init__(self, binary_classifier,  max_iters=100, kfold=3, verbose=0, randomize=True):
+    def __init__(self, binary_classifier,  max_iters=100, kfold=3, verbose=0):
         self.clf = binary_classifier
         self.max_iters = max_iters
         self.kfold = kfold
         self.verbose = verbose
-        self.kperm = list(range(kfold))
-        if randomize:
-            random.shuffle(self.kperm)
 
     def _split_k(self, X, Y, k):
         issparse = isspmatrix_csr(X)
@@ -114,19 +109,21 @@ class MultiRankClassifier:
         self.q = len(Y[0])
         X, Y, Xc = self._split_k(X, Y, self.kfold)
         rankj = RankJudge(self.clf, self.q, self.verbose)
+        Y_next = [None] * self.kfold
 
         for iteration in range(self.max_iters):
             if self.verbose >= 1:
                 print('[%d]' % iteration, end='', flush=True)
-            for k in self.kperm:
+            for k in range(self.kfold):
                 Yc = sum([Y[i] for i in range(self.kfold) if i != k], [])
                 rankj.fit(Xc[k], Yc)
-                Y[k] = rankj.predict(X[k])
+                Y_next[k] = rankj.predict(X[k])
+            Y = Y_next
             with open('tmp/%d_%d.json' % (xlen, iteration), 'w') as fout:
                 json.dump(sum(Y, []), fout, indent=4)
 
-        if self.verbose >= 1:
-            print()
+            if self.verbose >= 1:
+                print()
 
         self.rankj = rankj
         return sum(Y, [])
