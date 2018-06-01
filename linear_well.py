@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #-------------------------------------------------------------------------------------#
 #  Name:           linear_well.py                                                     #
-#  Description:    a weak-multi-label learning algorithm based on a linear method     #
+#  Description:    a WEak-multi-Label-Learning algorithm based on a linear method     #
 #  Author:         fyl                                                                #
 #-------------------------------------------------------------------------------------#
 from sklearn.metrics.pairwise import cosine_similarity
@@ -17,7 +17,7 @@ import pickle
 
 class LinearWELL:
     """
-    LinearWELL is a  multi-label learning machine based on a linear method.
+    LinearWELL is a multi-label learning machine based on a linear method.
     This algorithm uses a first-order strategy, which means it does not consider
     the corelation between different labels.
 
@@ -60,12 +60,12 @@ class LinearWELL:
         Calculate a new label matrix with the same size as Y based on the cosine
         similarity matrix of X.
 
-        X: array-like, shape (m, d)
+        X: array-like, shape (n_samples, n_features)
             supported types: python list, numpy.ndarray, scipy sparse matrix
-        Y: array-like, shape (m, q)
+        Y: array-like, shape (n_samples, n_classes)
             supported types: python list, numpy.ndarray, scipy sparse matrix
 
-        Returns: numpy.ndarray, shape (m, q)
+        Returns: numpy.ndarray, shape (n_samples, n_classes)
         """
         q = len(Y[0])
         m = len(X) if isinstance(X, list) else X.shape[0]
@@ -87,7 +87,7 @@ class LinearWELL:
                 labeled = vstack(labeled, format='csr')
 
             if m1 == 0 or m0 == 0:
-                print('Runtime Warning: label %d all %s'(
+                print('Warning: label %d all %s'(
                     label, 'positive' if m0 == 0 else 'negative'))
                 F.append([int(m0 == 0)] * m)
                 continue
@@ -137,8 +137,8 @@ def main(args):
     x_train = tfidf.fit_transform(x_train[:, -1])
 
     # learn the new label matrix using LinearWELL
-    candidates = [50, 60, 70, 80, 90, 100]
-    target_rate = 0.15
+    candidates = [220, 240]
+    target_rate = 0.08
     curr_min = 1
 
     print('------------------------------------------------')
@@ -150,6 +150,7 @@ def main(args):
         clf = LinearWELL(gamma=gamma, verbose=(args.verbose >= 1))
         curr_res = clf.fit_transform(x_train[:], y_train[:])
         score = np.count_nonzero(curr_res) / curr_res.size
+        print()
         print('[CV] gamma=%.2f   score=%.2f' % (gamma, score))
 
         if abs(score - target_rate) < curr_min:
@@ -160,7 +161,7 @@ def main(args):
     print('the best parameter is %s' % {'gamma': best_param})
     print('------------------------------------------------')
 
-    # write the matrix to target path
+    # write the label matrix to target file
     with open('model/linear_well.json', 'w') as fout:
         json.dump(res.tolist(), fout, indent=4)
 
