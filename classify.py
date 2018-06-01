@@ -1,7 +1,7 @@
 from sklearn import svm, base, decomposition, preprocessing
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_extraction.text import TfidfVectorizer
-from scipy.sparse import vstack, isspmatrix_csr
+from scipy.sparse import vstack, issparse
 import numpy as np
 import json
 import random
@@ -10,6 +10,7 @@ import pickle
 from pprint import pprint
 from crawl import CATEGORIES
 
+from pprint import pprint
 
 class RankJudge:
 
@@ -19,7 +20,7 @@ class RankJudge:
         self.verbose = verbose
 
     def fit(self, X, Y):
-        issparse = isspmatrix_csr(X)
+        is_sparse = issparse(X)
 
         self.clfs = [[base.clone(self.base_clf)
                       for _ in range(self.q - 1 - i)] for i in range(self.q)]
@@ -34,7 +35,7 @@ class RankJudge:
                     else:
                         X_tmp += [xi, xi]
                         Y_tmp += [0, 1]
-                if issparse:
+                if is_sparse:
                     X_tmp = vstack(X_tmp, format='csr')
                 if self.verbose >= 1:
                     print('.', end='', flush=True)
@@ -44,7 +45,7 @@ class RankJudge:
                     self.clfs[i][j - i - 1] = Y_tmp[0]
 
     def predict(self, X):
-        xlen = X.shape[0] if isspmatrix_csr(X) else len(X)
+        xlen = X.shape[0] if issparse(X) else len(X)
 
         res = [[0] * self.q for _ in range(xlen)]
         for i in range(self.q):
@@ -63,16 +64,16 @@ class RankJudge:
 
 class MultiRankClassifier:
 
-    def __init__(self, binary_classifier,  max_iters=100, kfold=3, verbose=0):
+    def __init__(self, binary_classifier,  max_iters=20, kfold=3, verbose=0):
         self.clf = binary_classifier
         self.max_iters = max_iters
         self.kfold = kfold
         self.verbose = verbose
 
     def _split_k(self, X, Y, k):
-        issparse = isspmatrix_csr(X)
+        is_sparse = issparse(X)
 
-        if not issparse:
+        if not is_sparse:
             X = np.array(X)
 
         if X.shape[0] < k:
@@ -84,13 +85,12 @@ class MultiRankClassifier:
         div, mod = divmod(X.shape[0], k)
         n_each = [div + 1] * (mod) + [div] * (k - mod)
         ans = 0
-        
 
         X_, Y_, X_c = [], [], []
         for i in range(k):
             X_.append(X[ans:ans + n_each[i]])
             Y_.append(Y[ans:ans + n_each[i]])
-            if issparse:
+            if is_sparse:
                 X_c.append(
                     vstack((X[:ans], X[ans + n_each[i]:]), format='csr'))
             else:
@@ -104,7 +104,18 @@ class MultiRankClassifier:
         if isinstance(Y, np.ndarray):
             Y = Y.tolist()
 
-        xlen = X.shape[0] if isspmatrix_csr(X) else len(X)
+        xlen = X.shape[0] if issparse(X) else len(X)
+
+        is_sparse = issparse(X)
+
+        tmp = list(zip(range(xlen), X, Y))
+        random.shuffle(tmp)
+        old_index, X, Y = zip(*tmp)
+        X, Y = list(X), list(Y)
+        
+        if is_sparse:
+            X = vstack(X, format='csr')
+        
 
         self.q = len(Y[0])
         X, Y, Xc = self._split_k(X, Y, self.kfold)
@@ -119,14 +130,20 @@ class MultiRankClassifier:
                 rankj.fit(Xc[k], Yc)
                 Y_next[k] = rankj.predict(X[k])
             Y = Y_next
+
+            Y_tmp = sum(Y, [])
+            Y_old = [None] * len(Y_tmp)
+            for i in range(len(Y_tmp)):
+                Y_old[old_index[i]] = Y_tmp[i]
             with open('tmp/%d_%d.json' % (xlen, iteration), 'w') as fout:
-                json.dump(sum(Y, []), fout, indent=4)
+                json.dump(sum(Y_old, []), fout, indent=4)
 
             if self.verbose >= 1:
                 print()
 
         self.rankj = rankj
-        return sum(Y, [])
+
+        return Y_old
 
     def predict(self, X):
         return self.rankj.predict(X)
