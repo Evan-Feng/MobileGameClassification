@@ -3,7 +3,7 @@
 *.sublime-workspace
 
 test_*.py
-
+.idea/
 tests/
 dataset/
 model/
