@@ -136,7 +136,7 @@ class MultiRankClassifier:
             for i in range(len(Y_tmp)):
                 Y_old[old_index[i]] = Y_tmp[i]
             with open('tmp/%d_%d.json' % (xlen, iteration), 'w') as fout:
-                json.dump(sum(Y_old, []), fout, indent=4)
+                json.dump(Y_old, fout, indent=4)
 
             if self.verbose >= 1:
                 print()
