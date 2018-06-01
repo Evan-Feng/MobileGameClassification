@@ -2,6 +2,8 @@
 *.sublime-project
 *.sublime-workspace
 
+test_*.py
+
 tests/
 dataset/
 model/
