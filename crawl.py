@@ -26,6 +26,9 @@ CHROME_PATH = 'Z:/chromedriver.exe'
 START_PACKAGES = [
     'com.orangeapps.piratetreasure',
     'se.hellothere.gravityhd',
+    'com.makingfun.mageandminions',
+    'com.gameloft.android.ANMP.Gloft5DHM',
+    'com.Zeeppo.GuitarBand',
 ]
 
 XPATHS = {
@@ -70,14 +73,17 @@ HEADERS = {
 
 
 class Crawler:
+    """
+    A web crawler object that can fetch app pages from Google Play and parse them
+    into app info dict.
+    
+    Parameters
+    ----------
+    driver: Selenium.webdriver.Chrome object
+        a selenium webdriver object utilized to control the browser
+    """
 
     def __init__(self, driver):
-        """
-        driver: Selenium.webdriver.Chrome object
-            a selenium webdriver object utilized to control the browser
-
-        Returns: None
-        """
         self.driver = driver
         time.sleep(5)
 
@@ -126,7 +132,7 @@ class Crawler:
         res = set()
         try:
             self.driver.find_element_by_xpath(
-                "//a[text() = 'See more']").click()
+                "//a[@aria-label and text() = 'See more']").click()
             # scroll_down(self.driver, 50)
             time.sleep(1)
             for elem in self.driver.find_elements_by_xpath("//span[@class = 'preview-overlay-container']"):
@@ -137,7 +143,19 @@ class Crawler:
 
 
 class PackageInfoWriter:
+    """
+    Converts app info dicts to a feature vector and buffer them. The buffer is
+    periodically written to the target path.
 
+    Parameters
+    ----------
+    csv_path: str
+        the csv file to write data
+    period: int
+        the number of rows to buffer before writing to csv file
+    strict_mode: bool
+        skip the package if at least one attribute is missing
+    """
     def __init__(self, csv_path, period, strict_mode):
         """
         csv_path: str
@@ -226,6 +244,7 @@ def scheduler(Q1, Q2, verbose):
         queue = START_PACKAGES
 
     count = 0
+    stop_flag = False
     try:
         while True:
             while queue:
@@ -237,9 +256,18 @@ def scheduler(Q1, Q2, verbose):
                     queue.pop(0)
                 except Full:
                     break
+            else:
+                if stop_flag:
+                    break
+                else:
+                    stop_flag = True
             while True:
                 try:
-                    pkg = Q2.get(block=False)
+                    if stop_flag:
+                        pkg = Q2.get(timeout=30)
+                    else:
+                        pkg = Q2.get(block=False)
+                    stop_flag = False
                     if pkg not in visited and pkg not in queue and len(queue) < 100000:
                         queue.append(pkg)
                 except Empty:
@@ -247,7 +275,8 @@ def scheduler(Q1, Q2, verbose):
             if count % 100 == 0:
                 count = 1
                 if verbose:
-                    print('storing data, current length of queue is %d' % len(queue))
+                    print('storing data, current length of queue is %d' %
+                          len(queue))
                 with open('log/scrape.json', 'w') as fout:
                     json.dump([list(visited), queue], fout, indent=4)
     finally:
@@ -281,15 +310,19 @@ def crawl(Q1, Q2, pid, args):
 
     try:
         while True:
-            package = Q1.get()
+            try:
+                package = Q1.get(timeout=120)
+            except Empty:
+                break
             crawler.get_page_by_package(package)
             dic = crawler.parse_current_page()
-            if dic.get('Category', None) in CATEGORIES:
-                print('[%d] %s' % (pid, package))
+            if 'Category' in dic and dic['Category'].replace(' ', '_') in CATEGORIES:
+                dic['Category'] = dic['Category'].replace(' ', '_')
+                print('[%d] %s %s' % (pid, package, dic['Category']))
                 writer.process_dic(dic, package)
                 new_pkgs = crawler.explore_packages()
                 if args.verbose:
-                    print('appending %d packages to bfs queue' % len(new_pkgs))
+                    print('appending %d packages to queue' % len(new_pkgs))
                 for pkg in new_pkgs:
                     Q2.put(pkg)
     except Exception as e:
