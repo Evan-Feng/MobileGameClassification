@@ -1,3 +1,10 @@
+# -*- coding: utf-8 -*-
+#-------------------------------------------------------------------------------------#
+#  Name:           kfold_well.py                                                      #
+#  Description:    a WEak-multi-Label-Learning algorithm based on k-fold              #
+#                  valiadation and binary relevance                                   #
+#  Author:         fyl                                                                #
+#-------------------------------------------------------------------------------------#
 from sklearn import svm, preprocessing
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -13,43 +20,30 @@ from crawl import CATEGORIES
 from pprint import pprint
 
 
-class KWELLClassifer:
+class KFoldWELLClassifer:
+    """
+    KFoldWELL is a multi-label learning algorithm that learns new labels from
+    existing weak labels. During each iteration, the algorithm first split
+    training data into k partitions, then learn the label matrix of a certain
+    partition from the other k - 1 partitions using binary relevance algorithm.
 
-    def __init__(self, estimator,  max_iters=20, kfold=3, verbose=0):
+    Parameters
+    ----------
+    estimator: sklearn estimator object
+        the base estimator to be used in the one-vs-rest classifier
+    max_iters: int
+        number of iterations
+    kfold: int
+        number of partitions to split the training data
+    verbose: bool
+        increase verbosity
+    """
+
+    def __init__(self, estimator,  max_iters=20, kfold=3, verbose=False):
         self.estimator = estimator
         self.max_iters = max_iters
         self.kfold = kfold
         self.verbose = verbose
-
-    def _split_k(self, X, Y, k):
-        is_sparse = issparse(X)
-
-        if not is_sparse:
-            X = np.array(X)
-
-        if X.shape[0] < k:
-            raise ValueError(
-                'not enough samples to be split into %d partitions' % k)
-        elif X.shape[0] != len(Y):
-            raise ValueError(
-                'number of samples do not match, %d in X and %d in Y' % (X.shape[0], len(Y)))
-        div, mod = divmod(X.shape[0], k)
-        n_each = [div + 1] * (mod) + [div] * (k - mod)
-        ans = 0
-
-        X_, Y_, X_c = [], [], []
-        for i in range(k):
-            X_.append(X[ans:ans + n_each[i]])
-            Y_.append(np.array(Y[ans:ans + n_each[i]]))
-            if is_sparse:
-                X_c.append(
-                    vstack((X[:ans], X[ans + n_each[i]:]), format='csr'))
-            else:
-                X_c.append(np.concatenate(
-                    (X[:ans], X[ans + n_each[i]:]), axis=0))
-            ans += n_each[i]
-
-        return X_, Y_, X_c
 
     def fit_transform(self, X, Y):
         """
@@ -74,42 +68,32 @@ class KWELLClassifer:
         tmp = list(zip(range(xlen), X, Y))
         random.shuffle(tmp)
         old_index, X, Y = zip(*tmp)
+        old_to_new = sorted(list(enumerate(old_index)), key=lambda x: x[1])
+        old_to_new = [t[0] for t in old_to_new]
         X, Y = list(X), list(Y)
-        
-        if is_sparse:
-            X = vstack(X, format='csr')
+
+        X = vstack(X, format='csr') if is_sparse else np.array(X)
+        Y = np.array(Y)
 
         self.q = len(Y[0])
-        X, Y, Xc = self._split_k(X, Y, self.kfold)
-        Y_next = [None] * self.kfold
-
+        Y_next = Y.copy()
+        kf = KFold(self.kfold, shuffle=False)
         clf = OneVsRestClassifier(self.estimator)
 
         for iteration in range(self.max_iters):
-            if self.verbose >= 1:
-                print('[%d]' % iteration, end='', flush=True)
+            print('[%d]' % iteration, end='', flush=True)
 
-            for k in range(self.kfold):
-                Yc = np.concatenate([Y[i] for i in range(self.kfold) if i != k], axis=0)
-                clf.fit(Xc[k], np.array(Yc))
-                Y_next[k] = clf.predict(X[k])
-            
-            for k in range(self.kfold):
-                Y[k] = np.logical_or(Y[k], Y_next[k]).astype(int)
-
-            Y_tmp = np.concatenate(Y, axis=0)
-            Y_old = [None] * len(Y_tmp)
-            for i in range(len(Y_tmp)):
-                Y_old[old_index[i]] = Y_tmp[i]
-            Y_old = np.array(Y_old)
+            for train_index, test_index in kf.split(X):
+                clf.fit(X[train_index], Y[train_index])
+                Y_next[test_index] = clf.predict(X[test_index])
+                print('.', end='', flush=True)
+            Y = np.logical_or(Y, Y_next).astype(int)
 
             with open('tmp/%d_%d.json' % (xlen, iteration), 'w') as fout:
-                json.dump(Y_old.tolist(), fout, indent=4)
+                json.dump(Y[old_to_new].tolist(), fout, indent=4)
+            print()
 
-            if self.verbose >= 1:
-                print()
-
-        return Y_old
+        return Y[old_to_new]
 
 
 def main(args):
@@ -134,17 +118,28 @@ def main(args):
     tfidf = TfidfVectorizer()
     x_train = tfidf.fit_transform(x_train[:, -1])
 
-    clf = KWELLClassifer(svm.LinearSVC(C=0.3), max_iters=1)
+    # learn the new label matrix using KFoldWELL
+    clf = KFoldWELLClassifer(svm.LinearSVC(
+        C=0.3), max_iters=args.iters, kfold=args.kfold)
 
     res = clf.fit_transform(x_train, y_train)
 
+    # write the label matrix to target file
     with open('model/kfold_well.json', 'w') as fout:
-        json.dump(res.tolist(), fout)
+        json.dump(res.tolist(), fout, indent=4)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('infile',
                         help='file path of the dataset')
+    parser.add_argument('-k', '--kfold',
+                        type=int,
+                        default=3,
+                        help='specify parameter kfold to be used')
+    parser.add_argument('-t', '--iters',
+                        type=int,
+                        default=1,
+                        help='specify the number of iterations')
     args = parser.parse_args()
     main(args)
