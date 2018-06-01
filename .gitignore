@@ -1,3 +1,17 @@
+# sublimetext project config
+*.sublime-project
+*.sublime-workspace
+
+tests/
+dataset/
+model/
+raw/
+result/
+tmp/
+package_info/
+log/
+backup/
+
 # apk files and other raw data
 googleplay/
 
