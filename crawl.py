@@ -3,7 +3,6 @@
 #  Name:           crawl.py                                                           #
 #  Description:    an efficient multi-process web crawler that automatically scrapes  #
 #                  app info from Google Play                                          #
-#  Author:         fyl                                                                #
 #-------------------------------------------------------------------------------------#
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options

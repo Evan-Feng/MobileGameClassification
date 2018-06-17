@@ -1,3 +1,9 @@
+# -*- coding: utf-8 -*-
+#-------------------------------------------------------------------------------------#
+#  Name:           cat.py                                                             #
+#  Description:    concatenate app info into csv files, multi-processing is used to   #
+#                  to speed up the procedure                                          #
+#-------------------------------------------------------------------------------------#
 import re
 import os
 import csv

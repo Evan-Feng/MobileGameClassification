@@ -143,56 +143,33 @@ def main(args):
     y_train = y_train.astype('int64')
     y_test = y_test.astype('int64')
 
-    random_index = list(range(len(x_train)))
-    random.shuffle(random_index)
+    random_index = np.random.permutation(len(x_train))
     x_train = np.array(x_train[random_index])
     y_train = np.array(y_train[random_index])
 
-    # y_train = y_train.astype(bool).astype(int)
-    # y_test = y_test.astype(bool).astype(int)
 
     # combined different features
     feature_extractors = [
         # ('general', MyScaler(False)),
-        # ('wordcount', MyCountVectorizer(ngram_range=(1, 1), stop_words='english')),
-        ('tfidf', MyTfidfVectorizer(stop_words='english')),
+        ('wordcount', MyCountVectorizer(ngram_range=(1, 1))),
+        # ('tfidf', MyTfidfVectorizer(stop_words='english')),
     ]
     combined_feature = FeatureUnion(feature_extractors)
 
-    estimators = [('feature', combined_feature),
-                  ('clf', svm.LinearSVC(C=0.3))]
-    pipeline = Pipeline(estimators)
+    for clf in [MultinomialNB(alpha=1.0)]:
+        print(clf)
+        for c in range(17):
+            estimators = [('feature', combined_feature),
+                          ('clf', clf)]
+            pipeline = Pipeline(estimators)
 
-    # pipeline.fit(x_train, y_train)
-    # print(pipeline.score(x_test, y_test))
+            y_train_tmp = (y_train == c).astype(int)
+            y_test_tmp = (y_test == c).astype(int)
 
-    # parameters to search
-    param_grid = [
-        {
-            'clf': [MultinomialNB()],
-            'clf__alpha': [10, 1.0, 0.1, 0.01],
-        },
-        {
-            'clf': [svm.LinearSVC()],
-            'clf__C': [3, 1, 0.3, 0.1],
-        },
-    ]
+            pipeline.fit(x_train, y_train_tmp)
+            print('Category: %d    Accuracy: %.4f' % (c, pipeline.score(x_test, y_test_tmp)))
 
-    # start training
-    t0 = time.time()
-    grid = GridSearchCV(pipeline, param_grid=param_grid, verbose=4, n_jobs=4)
-    grid.fit(x_train, y_train)
-
-    print()
-    print('done in %.2f seconds' % (time.time() - t0))
-    print()
-    print('train accuracy: %.2f%%' % (100 * grid.score(x_train, y_train)))
-    print('test accuracy: %.2f%%' % (100 * grid.score(x_test, y_test)))
-    print()
-    print('the best parameters are:', grid.best_params_)
-    print()
-    print('confusion matrix:')
-    print(metrics.confusion_matrix(y_test, grid.predict(x_test)))
+            print(metrics.confusion_matrix(y_test_tmp, pipeline.predict(x_test)))
 
 
 if __name__ == '__main__':

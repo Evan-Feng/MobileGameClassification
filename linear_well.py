@@ -2,7 +2,6 @@
 #-------------------------------------------------------------------------------------#
 #  Name:           linear_well.py                                                     #
 #  Description:    a WEak-multi-Label-Learning algorithm based on a linear method     #
-#  Author:         fyl                                                                #
 #-------------------------------------------------------------------------------------#
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn import preprocessing
@@ -130,14 +129,14 @@ def main(args):
 
     # convert label to one-hot encoding
     lb = preprocessing.LabelBinarizer()
-    y_train = lb.fit_transform(y_train.astype('int64')).tolist()
+    y_train = lb.fit_transform(y_train.astype('int64'))
 
     # extract tf-idf features
     tfidf = TfidfVectorizer()
     x_train = tfidf.fit_transform(x_train[:, -1])
 
     # learn the new label matrix using LinearWELL
-    candidates = [220, 240]
+    candidates = [120, 140, 150, 160]
     target_rate = 0.08
     curr_min = 1
 
@@ -148,10 +147,10 @@ def main(args):
 
     for gamma in candidates:
         clf = LinearWELL(gamma=gamma, verbose=(args.verbose >= 1))
-        curr_res = clf.fit_transform(x_train[:], y_train[:])
+        curr_res = clf.fit_transform(x_train, y_train)
         score = np.count_nonzero(curr_res) / curr_res.size
         print()
-        print('[CV] gamma=%.2f   score=%.2f' % (gamma, score))
+        print('[CV] gamma=%.2f   score=%.6f' % (gamma, score))
 
         if abs(score - target_rate) < curr_min:
             curr_min = abs(score - target_rate)

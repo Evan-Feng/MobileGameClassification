@@ -3,7 +3,6 @@
 #  Name:           kfold_well.py                                                      #
 #  Description:    a WEak-multi-Label-Learning algorithm based on k-fold              #
 #                  valiadation and binary relevance                                   #
-#  Author:         fyl                                                                #
 #-------------------------------------------------------------------------------------#
 from sklearn import svm, preprocessing
 from sklearn.multiclass import OneVsRestClassifier
@@ -25,12 +24,12 @@ class KFoldWELLClassifer:
     KFoldWELL is a multi-label learning algorithm that learns new labels from
     existing weak labels. During each iteration, the algorithm first split
     training data into k partitions, then learn the label matrix of a certain
-    partition from the other k - 1 partitions using binary relevance algorithm.
+    partition from the other k - 1 partitions using binary relavance strategy.
 
     Parameters
     ----------
     estimator: sklearn estimator object
-        the base estimator to be used in the one-vs-rest classifier
+        the base estimator to be used in the one-vs-rest classification
     max_iters: int
         number of iterations
     kfold: int
@@ -88,9 +87,6 @@ class KFoldWELLClassifer:
                 Y_next[test_index] = clf.predict(X[test_index])
                 print('.', end='', flush=True)
             Y = np.logical_or(Y, Y_next).astype(int)
-
-            with open('tmp/%d_%d.json' % (xlen, iteration), 'w') as fout:
-                json.dump(Y[old_to_new].tolist(), fout, indent=4)
             print()
 
         return Y[old_to_new]
