@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 #-------------------------------------------------------------------------------------#
-#  Name:           classify.py                                                        #
-#  Description:    single-label classification based on linear SVM                    #
+#  Name:           binary_classify.py                                                 #
+#  Description:    binary classifcation on 17 problem using Multinomial Naive         #
+#                  Bayasian and SVM                                                   #
 #-------------------------------------------------------------------------------------#
 from sklearn import metrics, preprocessing, svm, decomposition
 from sklearn.pipeline import FeatureUnion, Pipeline
